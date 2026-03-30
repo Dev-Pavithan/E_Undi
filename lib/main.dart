@@ -71,7 +71,6 @@ class _SplashGateState extends State<SplashGate> {
   void _checkStatus() async {
     final bool isAuthenticated = StorageService.getCookie('isAuthenticated') == 'true';
     
-    // Smooth check
     await Future.delayed(const Duration(milliseconds: 500));
 
     if (!mounted) return;
@@ -82,7 +81,6 @@ class _SplashGateState extends State<SplashGate> {
         MaterialPageRoute(builder: (context) => const DonationScreen()),
       );
     } else {
-      // Check if PWA is installed
       bool installed = true;
       try {
         installed = isPWAInstalled();
@@ -116,13 +114,12 @@ class _SplashGateState extends State<SplashGate> {
                   shape: BoxShape.circle,
                 ),
                 child: ClipOval(
-                  child: Image.asset(
-                    'assets/logo.png',
+                  child: Image.network(
+                    '/icons/Icon-512.png',
                     width: 100,
                     height: 100,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
-                      debugPrint('Error loading logo: $error');
                       return Container(
                         width: 100,
                         height: 100,

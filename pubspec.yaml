@@ -32,6 +32,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   
-  # Add your assets here
   assets:
     - assets/logo.png
