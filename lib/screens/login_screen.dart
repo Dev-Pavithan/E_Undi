@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/input_box.dart';
@@ -38,17 +39,27 @@ class _LoginScreenState extends State<LoginScreen> {
         _showInstallPopup();
       });
     }
+    
+    // Prevent form submission on Enter key
+    _setupFormSubmission();
+  }
+  
+  void _setupFormSubmission() {
+    // This will prevent any accidental form submissions that might cause refresh
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   Future<void> _checkIfAlreadyAuthenticated() async {
     try {
       final isAuthenticated = await StorageService.getCookie('isAuthenticated');
-      if (isAuthenticated == 'true') {
+      final deviceEmail = await StorageService.getCookie('device_email');
+      
+      if (isAuthenticated == 'true' && deviceEmail != null && deviceEmail.isNotEmpty) {
         if (mounted) {
-          // Use pushReplacementNamed with a small delay to ensure navigation
+          // Use a delayed navigation to ensure everything is loaded
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              Navigator.pushReplacementNamed(context, '/donation');
+              _navigateToDonation();
             }
           });
         }
@@ -56,6 +67,14 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       debugPrint('Error checking auth: $e');
     }
+  }
+  
+  void _navigateToDonation() {
+    // Clear any pending routes and navigate to donation
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/donation',
+      (Route<dynamic> route) => false, // This removes all previous routes
+    );
   }
 
   Future<void> _loadSavedInfo() async {
@@ -76,7 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _idController.text = 'DEV_99';
       }
       
-      // Set default password for testing (optional)
+      // Set default password for testing
       _passwordController.text = '123456789';
     } catch (e) {
       debugPrint('Error loading saved info: $e');
@@ -119,6 +138,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     if (!_validate()) return;
+    
+    // Prevent multiple submissions
+    if (_isLoading) return;
+    
     setState(() => _isLoading = true);
 
     try {
@@ -190,7 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Handle navigation after successful login
       if (mounted) {
         // Add a small delay to show the success message
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 800));
         
         if (mounted) {
           // Check if PWA is already installed
@@ -205,8 +228,8 @@ class _LoginScreenState extends State<LoginScreen> {
             _hasShownInstallDialog = true;
             _showInstallPopup();
           } else {
-            // Direct navigation to donation screen
-            Navigator.pushReplacementNamed(context, '/donation');
+            // Use pushNamedAndRemoveUntil to prevent going back to login
+            _navigateToDonation();
           }
         }
       }
@@ -249,7 +272,7 @@ class _LoginScreenState extends State<LoginScreen> {
         // Still navigate even if install isn't ready
         if (mounted) {
           Navigator.pop(context);
-          Navigator.pushReplacementNamed(context, '/donation');
+          _navigateToDonation();
         }
         return;
       }
@@ -264,7 +287,7 @@ class _LoginScreenState extends State<LoginScreen> {
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.pushReplacementNamed(context, '/donation');
+          _navigateToDonation();
         }
       } else if (result == false && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -273,7 +296,7 @@ class _LoginScreenState extends State<LoginScreen> {
             backgroundColor: Colors.orange,
           ),
         );
-        Navigator.pushReplacementNamed(context, '/donation');
+        _navigateToDonation();
       }
     } catch (e) {
       debugPrint('Install error: $e');
@@ -284,7 +307,7 @@ class _LoginScreenState extends State<LoginScreen> {
             backgroundColor: Colors.orange,
           ),
         );
-        Navigator.pushReplacementNamed(context, '/donation');
+        _navigateToDonation();
       }
     }
   }
@@ -346,7 +369,7 @@ class _LoginScreenState extends State<LoginScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, '/donation');
+              _navigateToDonation();
             },
             child: const Text('Skip', style: TextStyle(color: Colors.grey)),
           ),
