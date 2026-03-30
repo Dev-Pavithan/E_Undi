@@ -115,10 +115,28 @@ class _SplashGateState extends State<SplashGate> {
                   color: Colors.white.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.favorite,
-                  size: 80,
-                  color: Colors.white,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(60),
+                  child: Image.asset(
+                    'assets/logo.png',
+                    width: 80,
+                    height: 80,
+                    errorBuilder: (context, error, stackTrace) {
+                      // Fallback to network image if asset not found
+                      return Image.network(
+                        '/icons/Icon-512.png',
+                        width: 80,
+                        height: 80,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.favorite,
+                            size: 80,
+                            color: Colors.white,
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
