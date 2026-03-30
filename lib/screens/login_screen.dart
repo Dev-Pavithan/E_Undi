@@ -1,4 +1,5 @@
 import 'dart:js' as js;
+import 'dart:js_util' as js_util;
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
@@ -92,14 +93,22 @@ class _LoginScreenState extends State<LoginScreen> {
         // Only show install dialog once
         if (!_hasShownInstallDialog) {
           // Check if PWA is already installed
-          final isInstalled = _isPWAInstalled();
+          final isInstalled = await _isPWAInstalled();
           
           if (!isInstalled) {
-            // Show installation dialog
-            _hasShownInstallDialog = true;
-            setState(() {
-              _showInstallDialog = true;
-            });
+            // Check if prompt is available
+            final promptAvailable = await _isPWAPromptAvailable();
+            
+            if (promptAvailable) {
+              // Show installation dialog
+              _hasShownInstallDialog = true;
+              setState(() {
+                _showInstallDialog = true;
+              });
+            } else {
+              // No prompt available, go to donation
+              Navigator.pushReplacementNamed(context, '/donation');
+            }
           } else {
             // Already installed, go to donation
             Navigator.pushReplacementNamed(context, '/donation');
@@ -120,9 +129,17 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  bool _isPWAInstalled() {
+  Future<bool> _isPWAInstalled() async {
     try {
       return js.context.callMethod('isPWAInstalled') as bool? ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> _isPWAPromptAvailable() async {
+    try {
+      return js.context.callMethod('isPWAPromptAvailable') as bool? ?? false;
     } catch (e) {
       return false;
     }
@@ -137,19 +154,29 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _installPWA() async {
+  Future<void> _installPWA() async {
     setState(() => _installing = true);
     
     try {
-      final result = js.context.callMethod('installPWA') as String? ?? 'error';
+      // Call installPWA which returns a Promise
+      final dynamic jsPromise = js.context.callMethod('installPWA');
+      
+      if (jsPromise == null) {
+        debugPrint('Install: No promise returned');
+        _handleInstallError();
+        return;
+      }
+      
+      // Convert JS Promise to Future
+      final result = await js_util.promiseToFuture<String?>(jsPromise);
       debugPrint('Install result: $result');
       
-      if (result == 'installed' || result == 'already_installed') {
+      if (result == 'installed') {
         // Success - show success message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('App installed successfully!'),
+              content: Text('App installed successfully! 🎉'),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 2),
             ),
@@ -162,62 +189,58 @@ class _LoginScreenState extends State<LoginScreen> {
             Navigator.pushReplacementNamed(context, '/donation');
           }
         });
-      } else if (result == 'installing') {
-        // Installation in progress
+      } else if (result == 'already_installed') {
+        // Already installed
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Please follow the browser prompts to install'),
+              content: Text('App is already installed!'),
               backgroundColor: Colors.blue,
-              duration: Duration(seconds: 3),
             ),
           );
-          
-          // Navigate after installation or timeout
-          Future.delayed(const Duration(seconds: 3), () {
-            if (mounted) {
-              Navigator.pushReplacementNamed(context, '/donation');
-            }
-          });
+          Navigator.pushReplacementNamed(context, '/donation');
         }
-      } else {
-        // Installation not available - just continue
+      } else if (result == 'dismissed') {
+        // User dismissed
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_isLocalhost() 
-                ? 'On localhost, installation is simulated. In production, you can install the app.'
-                : 'Installation not available. You can continue using the web version.'),
+            const SnackBar(
+              content: Text('Installation cancelled'),
               backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
             ),
           );
-          
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            if (mounted) {
-              Navigator.pushReplacementNamed(context, '/donation');
-            }
-          });
+          Navigator.pushReplacementNamed(context, '/donation');
         }
+      } else {
+        // Other errors
+        _handleInstallError();
       }
     } catch (e) {
       debugPrint('Install error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Installation failed: ${_isLocalhost() ? "Simulation only on localhost" : e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (mounted) {
-            Navigator.pushReplacementNamed(context, '/donation');
-          }
-        });
-      }
+      _handleInstallError();
     } finally {
       if (mounted) setState(() => _installing = false);
+    }
+  }
+
+  void _handleInstallError() {
+    if (mounted) {
+      final isLocalhost = _isLocalhost();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isLocalhost 
+            ? 'On localhost, installation is simulated. In production, the app can be installed.'
+            : 'Installation not available. You can continue using the web version.'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/donation');
+        }
+      });
     }
   }
 
@@ -311,8 +334,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Description
                 Text(
                   isLocalhost 
-                    ? 'Installation is simulated on localhost.\nIn production, you can install the app for a better experience.'
-                    : 'Get a better experience with the installed app',
+                    ? '💻 Localhost Mode\nInstallation is simulated. In production, you can install the app.'
+                    : '📱 Install for Better Experience\nGet faster access, offline support, and home screen icon',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 14,
@@ -369,7 +392,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           )
                         : const Icon(Icons.download, size: 20),
                     label: Text(
-                      _installing ? 'Installing...' : (isLocalhost ? 'Continue to App' : 'Install Now'),
+                      _installing 
+                        ? 'Installing...' 
+                        : (isLocalhost ? 'Continue to App' : 'Install Now'),
                       style: const TextStyle(fontSize: 16),
                     ),
                     style: ElevatedButton.styleFrom(
