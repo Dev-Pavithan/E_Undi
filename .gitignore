@@ -5,7 +5,6 @@
 *.swp
 .DS_Store
 .atom/
-.build/
 .buildlog/
 .history
 .svn/
@@ -30,8 +29,15 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-/coverage/
+
+# IMPORTANT: Only ignore platform-specific builds, NOT the web build
+# Build folder exceptions - we need web build for deployment
+/build/ios/
+/build/android/
+/build/macos/
+/build/linux/
+/build/windows/
+!/build/web/
 
 # Symbolication related
 app.*.symbols
@@ -43,3 +49,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Coverage reports
+/coverage/
