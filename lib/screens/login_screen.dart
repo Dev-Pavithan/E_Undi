@@ -1,13 +1,14 @@
-import 'dart:js' as js;
-import 'dart:js_util' as js_util;
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/input_box.dart';
 import '../theme.dart';
+import '../pwa_interop.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final bool showInstallPrompt;
+  
+  const LoginScreen({super.key, this.showInstallPrompt = false});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -23,8 +24,6 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _passwordError;
   bool _showPassword = false;
   bool _isLoading = false;
-  bool _showInstallDialog = false;
-  bool _installing = false;
   bool _hasShownInstallDialog = false;
 
   @override
@@ -32,6 +31,14 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     _loadSavedInfo();
     _checkIfAlreadyAuthenticated();
+    
+    // Show install dialog if prompted from splash
+    if (widget.showInstallPrompt && !_hasShownInstallDialog) {
+      _hasShownInstallDialog = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showInstallPopup();
+      });
+    }
   }
 
   Future<void> _checkIfAlreadyAuthenticated() async {
@@ -90,29 +97,12 @@ class _LoginScreenState extends State<LoginScreen> {
       await StorageService.setLocalValue('isAuthenticated', 'true');
 
       if (mounted) {
-        // Only show install dialog once
-        if (!_hasShownInstallDialog) {
-          // Check if PWA is already installed
-          final isInstalled = await _isPWAInstalled();
-          
-          if (!isInstalled) {
-            // Check if prompt is available
-            final promptAvailable = await _isPWAPromptAvailable();
-            
-            if (promptAvailable) {
-              // Show installation dialog
-              _hasShownInstallDialog = true;
-              setState(() {
-                _showInstallDialog = true;
-              });
-            } else {
-              // No prompt available, go to donation
-              Navigator.pushReplacementNamed(context, '/donation');
-            }
-          } else {
-            // Already installed, go to donation
-            Navigator.pushReplacementNamed(context, '/donation');
-          }
+        // Check if PWA is already installed
+        final isInstalled = isPWAInstalled();
+        
+        if (!isInstalled && !_hasShownInstallDialog) {
+          _hasShownInstallDialog = true;
+          _showInstallPopup();
         } else {
           Navigator.pushReplacementNamed(context, '/donation');
         }
@@ -129,295 +119,122 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<bool> _isPWAInstalled() async {
-    try {
-      return js.context.callMethod('isPWAInstalled') as bool? ?? false;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  Future<bool> _isPWAPromptAvailable() async {
-    try {
-      return js.context.callMethod('isPWAPromptAvailable') as bool? ?? false;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  bool _isLocalhost() {
-    try {
-      final hostname = js.context['location']['hostname'] as String? ?? '';
-      return hostname == 'localhost' || hostname == '127.0.0.1';
-    } catch (e) {
-      return false;
-    }
-  }
-
-  Future<void> _installPWA() async {
-    setState(() => _installing = true);
-    
-    try {
-      // Call installPWA which returns a Promise
-      final dynamic jsPromise = js.context.callMethod('installPWA');
-      
-      if (jsPromise == null) {
-        debugPrint('Install: No promise returned');
-        _handleInstallError();
-        return;
-      }
-      
-      // Convert JS Promise to Future
-      final result = await js_util.promiseToFuture<String?>(jsPromise);
-      debugPrint('Install result: $result');
-      
-      if (result == 'installed') {
-        // Success - show success message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('App installed successfully! 🎉'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-        
-        // Navigate after a short delay
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (mounted) {
-            Navigator.pushReplacementNamed(context, '/donation');
-          }
-        });
-      } else if (result == 'already_installed') {
-        // Already installed
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('App is already installed!'),
-              backgroundColor: Colors.blue,
-            ),
-          );
-          Navigator.pushReplacementNamed(context, '/donation');
-        }
-      } else if (result == 'dismissed') {
-        // User dismissed
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Installation cancelled'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          Navigator.pushReplacementNamed(context, '/donation');
-        }
-      } else {
-        // Other errors
-        _handleInstallError();
-      }
-    } catch (e) {
-      debugPrint('Install error: $e');
-      _handleInstallError();
-    } finally {
-      if (mounted) setState(() => _installing = false);
-    }
-  }
-
-  void _handleInstallError() {
-    if (mounted) {
-      final isLocalhost = _isLocalhost();
+  Future<void> _triggerPWAInstall() async {
+    if (!isPWAPromptReady()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isLocalhost 
-            ? 'On localhost, installation is simulated. In production, the app can be installed.'
-            : 'Installation not available. You can continue using the web version.'),
+        const SnackBar(
+          content: Text('Installation prompt not ready. Please wait a moment or check your browser settings.'),
           backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 3),
         ),
       );
-      
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/donation');
-        }
-      });
+      return;
+    }
+    
+    final result = await installPWA();
+    if (result == true && mounted) {
+      Navigator.pop(context); // Close popup
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('App installed successfully! 🎉'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pushReplacementNamed(context, '/donation');
+    } else if (result == false && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Installation cancelled or not available'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      Navigator.pushReplacementNamed(context, '/donation');
     }
   }
 
-  void _skipInstall() {
-    setState(() => _showInstallDialog = false);
-    Navigator.pushReplacementNamed(context, '/donation');
+  void _showInstallPopup() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: const [
+            Icon(Icons.install_mobile, color: Color(0xFF12376E)),
+            SizedBox(width: 12),
+            Text('Install App', style: TextStyle(color: Color(0xFF12376E), fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'For the best experience, install Eundi on your device.',
+              style: TextStyle(color: Colors.black87),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: const [
+                  _InstallFeature(icon: Icons.offline_bolt, text: 'Works offline'),
+                  SizedBox(height: 8),
+                  _InstallFeature(icon: Icons.speed, text: 'Faster performance'),
+                  SizedBox(height: 8),
+                  _InstallFeature(icon: Icons.fullscreen, text: 'Full-screen experience'),
+                  SizedBox(height: 8),
+                  _InstallFeature(icon: Icons.home, text: 'Easy access from home screen'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: _triggerPWAInstall,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF12376E),
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Install Now', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushReplacementNamed(context, '/donation');
+            },
+            child: const Text('Skip', style: TextStyle(color: Colors.grey)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Container(
-          decoration: const BoxDecoration(gradient: AppTheme.coreGradient),
-          child: Scaffold(
-            backgroundColor: Colors.transparent,
-            body: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 560),
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 32),
-                      child: _buildLoginForm(),
-                    ),
-                  ),
+    return Container(
+      decoration: const BoxDecoration(gradient: AppTheme.coreGradient),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 24, vertical: 32),
+                  child: _buildLoginForm(),
                 ),
               ),
-            ),
-          ),
-        ),
-        // Install Dialog Overlay
-        if (_showInstallDialog)
-          _buildInstallDialog(),
-      ],
-    );
-  }
-
-  Widget _buildInstallDialog() {
-    final isLocalhost = _isLocalhost();
-    
-    return Container(
-      color: Colors.black54,
-      child: Center(
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.all(24),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Icon
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.install_mobile,
-                    size: 48,
-                    color: AppTheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Title
-                const Text(
-                  'Install Eundi App',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Description
-                Text(
-                  isLocalhost 
-                    ? '💻 Localhost Mode\nInstallation is simulated. In production, you can install the app.'
-                    : '📱 Install for Better Experience\nGet faster access, offline support, and home screen icon',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Features
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: const [
-                      _FeatureRow(
-                        icon: Icons.offline_bolt,
-                        text: 'Works offline',
-                      ),
-                      SizedBox(height: 12),
-                      _FeatureRow(
-                        icon: Icons.speed,
-                        text: 'Faster performance',
-                      ),
-                      SizedBox(height: 12),
-                      _FeatureRow(
-                        icon: Icons.fullscreen,
-                        text: 'Full-screen experience',
-                      ),
-                      SizedBox(height: 12),
-                      _FeatureRow(
-                        icon: Icons.home,
-                        text: 'Easy access from home screen',
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-                // Install Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton.icon(
-                    onPressed: _installing ? null : _installPWA,
-                    icon: _installing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.download, size: 20),
-                    label: Text(
-                      _installing 
-                        ? 'Installing...' 
-                        : (isLocalhost ? 'Continue to App' : 'Install Now'),
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Skip Button
-                TextButton(
-                  onPressed: _skipInstall,
-                  child: const Text(
-                    'Skip for now',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.black45,
-                    ),
-                  ),
-                ),
-              ],
             ),
           ),
         ),
@@ -480,11 +297,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class _FeatureRow extends StatelessWidget {
+class _InstallFeature extends StatelessWidget {
   final IconData icon;
   final String text;
   
-  const _FeatureRow({
+  const _InstallFeature({
     required this.icon,
     required this.text,
   });
@@ -493,12 +310,12 @@ class _FeatureRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: Colors.green),
-        const SizedBox(width: 12),
+        Icon(icon, size: 18, color: Colors.green),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 13),
+            style: const TextStyle(fontSize: 12),
           ),
         ),
       ],

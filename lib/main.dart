@@ -10,6 +10,7 @@ import 'screens/thank_you_screen.dart';
 import 'screens/payment_method_screen.dart';
 import 'screens/qr_payment_screen.dart';
 import 'screens/device_installation_screen.dart';
+import 'pwa_interop.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,64 +51,94 @@ class EundiApp extends StatelessWidget {
           margin: EdgeInsets.zero,
         ),
       ),
-      initialRoute: _getInitialRoute(),
-      onGenerateRoute: (settings) {
-        final isAuthenticated = StorageService.getCookie('isAuthenticated') == 'true';
-
-        debugPrint('Route: ${settings.name}, Auth: $isAuthenticated');
-
-        // If authenticated and trying to access login, redirect to donation
-        if (isAuthenticated && settings.name == '/login') {
-          return MaterialPageRoute(builder: (_) => const DonationScreen());
-        }
-
-        // Auth Guard for protected routes
-        final protectedRoutes = [
-          '/donation',
-          '/payment-method',
-          '/card',
-          '/donor-form',
-          '/thank-you',
-          '/qr-payment',
-        ];
-
-        if (!isAuthenticated && protectedRoutes.contains(settings.name)) {
-          return MaterialPageRoute(builder: (_) => const LoginScreen());
-        }
-
-        // Route definitions
-        switch (settings.name) {
-          case '/login':
-            return MaterialPageRoute(builder: (_) => const LoginScreen());
-          case '/donation':
-            return MaterialPageRoute(builder: (_) => const DonationScreen());
-          case '/payment-method':
-            return MaterialPageRoute(builder: (_) => const PaymentMethodScreen());
-          case '/card':
-            return MaterialPageRoute(builder: (_) => const StripeTerminalScreen());
-          case '/donor-form':
-            return MaterialPageRoute(builder: (_) => const DonorFormScreen());
-          case '/thank-you':
-            return MaterialPageRoute(builder: (_) => const ThankYouScreen());
-          case '/qr-payment':
-            return MaterialPageRoute(builder: (_) => const QrPaymentScreen());
-          case '/device-installation':
-            return MaterialPageRoute(builder: (_) => const DeviceInstallationScreen());
-          default:
-            return MaterialPageRoute(builder: (_) => const LoginScreen());
-        }
-      },
+      home: SplashGate(),
     );
   }
+}
 
-  String _getInitialRoute() {
-    final isAuthenticated = StorageService.getCookie('isAuthenticated') == 'true';
+class SplashGate extends StatefulWidget {
+  @override
+  State<SplashGate> createState() => _SplashGateState();
+}
+
+class _SplashGateState extends State<SplashGate> {
+  @override
+  void initState() {
+    super.initState();
+    _checkStatus();
+  }
+
+  void _checkStatus() async {
+    final bool isAuthenticated = StorageService.getCookie('isAuthenticated') == 'true';
     
-    debugPrint('Initial route - Auth: $isAuthenticated');
-    
+    // Smooth check
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (!mounted) return;
+
     if (isAuthenticated) {
-      return '/donation';
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DonationScreen()),
+      );
+    } else {
+      // Check if PWA is installed
+      bool installed = true;
+      try {
+        installed = isPWAInstalled();
+      } catch (e) {
+        installed = false;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LoginScreen(showInstallPrompt: !installed),
+        ),
+      );
     }
-    return '/login';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF12376E),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Hero(
+              tag: 'app_logo',
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.favorite,
+                  size: 80,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
+            const CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Eundi',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
