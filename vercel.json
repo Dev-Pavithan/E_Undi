@@ -1,9 +1,8 @@
 {
   "version": 2,
-  "buildCommand": "flutter build web --release",
+  "buildCommand": null,
   "outputDirectory": "build/web",
-  "installCommand": "flutter pub get",
-  "devCommand": "flutter run -d chrome",
+  "installCommand": null,
   "routes": [
     {
       "src": "/(.*)",
