@@ -39,14 +39,6 @@ class _LoginScreenState extends State<LoginScreen> {
         _showInstallPopup();
       });
     }
-    
-    // Prevent form submission on Enter key
-    _setupFormSubmission();
-  }
-  
-  void _setupFormSubmission() {
-    // This will prevent any accidental form submissions that might cause refresh
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   Future<void> _checkIfAlreadyAuthenticated() async {
@@ -56,7 +48,6 @@ class _LoginScreenState extends State<LoginScreen> {
       
       if (isAuthenticated == 'true' && deviceEmail != null && deviceEmail.isNotEmpty) {
         if (mounted) {
-          // Use a delayed navigation to ensure everything is loaded
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               _navigateToDonation();
@@ -70,10 +61,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
   
   void _navigateToDonation() {
-    // Clear any pending routes and navigate to donation
+    // Clear all routes and navigate to donation
     Navigator.of(context).pushNamedAndRemoveUntil(
       '/donation',
-      (Route<dynamic> route) => false, // This removes all previous routes
+      (Route<dynamic> route) => false,
     );
   }
 
@@ -85,7 +76,6 @@ class _LoginScreenState extends State<LoginScreen> {
       if (savedEmail != null && savedEmail.isNotEmpty) {
         _emailController.text = savedEmail;
       } else {
-        // Set default for testing
         _emailController.text = 'DEV_99@gmail.com';
       }
       
@@ -95,11 +85,9 @@ class _LoginScreenState extends State<LoginScreen> {
         _idController.text = 'DEV_99';
       }
       
-      // Set default password for testing
       _passwordController.text = '123456789';
     } catch (e) {
       debugPrint('Error loading saved info: $e');
-      // Set default values for testing
       _emailController.text = 'DEV_99@gmail.com';
       _idController.text = 'DEV_99';
       _passwordController.text = '123456789';
@@ -110,11 +98,9 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       final email = _emailController.text.trim();
       
-      // Check if email is empty
       if (email.isEmpty) {
         _emailError = 'Device email is required';
       } 
-      // Check if it's a valid email format
       else if (!email.contains('@') || !email.contains('.')) {
         _emailError = 'Please enter a valid email address (e.g., DEV_99@gmail.com)';
       } 
@@ -124,7 +110,6 @@ class _LoginScreenState extends State<LoginScreen> {
       
       _idError = _idController.text.isEmpty ? 'Device ID is required' : null;
       
-      // Check password length
       if (_passwordController.text.isEmpty) {
         _passwordError = 'Password is required';
       } else if (_passwordController.text.length < 6) {
@@ -137,10 +122,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    if (!_validate()) return;
-    
     // Prevent multiple submissions
     if (_isLoading) return;
+    
+    if (!_validate()) return;
     
     setState(() => _isLoading = true);
 
@@ -170,7 +155,6 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('Invalid response from server');
       }
 
-      // Extract with null safety
       final deviceEmail = deviceData['device_email'] as String?;
       final deviceIdResponse = deviceData['device_id'] as String?;
       final comCode = deviceData['com_code'] as String?;
@@ -182,7 +166,6 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       debugPrint('Login successful for device: $deviceEmail');
-      debugPrint('Device status: $deviceStatus, Invoice availability: $invoiceAvailable');
 
       // Store all authentication data
       await StorageService.setCookie('device_email', deviceEmail);
@@ -212,11 +195,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Handle navigation after successful login
       if (mounted) {
-        // Add a small delay to show the success message
-        await Future.delayed(const Duration(milliseconds: 800));
+        // Small delay to show the success message
+        await Future.delayed(const Duration(milliseconds: 500));
         
         if (mounted) {
-          // Check if PWA is already installed
           bool installed = false;
           try {
             installed = isPWAInstalled();
@@ -228,7 +210,6 @@ class _LoginScreenState extends State<LoginScreen> {
             _hasShownInstallDialog = true;
             _showInstallPopup();
           } else {
-            // Use pushNamedAndRemoveUntil to prevent going back to login
             _navigateToDonation();
           }
         }
@@ -238,7 +219,6 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         String errorMessage = e.toString().replaceAll('Exception:', '').trim();
         
-        // Provide user-friendly error messages
         if (errorMessage.contains('device email') && errorMessage.contains('valid email')) {
           errorMessage = 'Please enter a valid email address (e.g., DEV_99@gmail.com)';
         } else if (errorMessage.contains('Validation failed')) {
@@ -269,7 +249,6 @@ class _LoginScreenState extends State<LoginScreen> {
             backgroundColor: Colors.orange,
           ),
         );
-        // Still navigate even if install isn't ready
         if (mounted) {
           Navigator.pop(context);
           _navigateToDonation();
@@ -380,20 +359,29 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(gradient: AppTheme.coreGradient),
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 24, vertical: 32),
-                  child: _buildLoginForm(),
+    return GestureDetector(
+      onTap: () {
+        FocusScope.of(context).unfocus();
+      },
+      child: Container(
+        decoration: const BoxDecoration(gradient: AppTheme.coreGradient),
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24.0),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Card(
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 32),
+                    child: _buildLoginForm(),
+                  ),
                 ),
               ),
             ),
@@ -422,21 +410,31 @@ class _LoginScreenState extends State<LoginScreen> {
           hint: 'Enter device email (e.g., DEV_99@gmail.com)',
           errorText: _emailError,
           keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          onSubmitted: (_) {
+            FocusScope.of(context).nextFocus();
+          },
         ),
-        const SizedBox(height: 16),
         InputBox(
           label: 'Device ID',
           controller: _idController,
           hint: 'Enter device ID',
           errorText: _idError,
+          textInputAction: TextInputAction.next,
+          onSubmitted: (_) {
+            FocusScope.of(context).nextFocus();
+          },
         ),
-        const SizedBox(height: 16),
         InputBox(
           label: 'Password',
           controller: _passwordController,
           hint: 'Enter password',
           errorText: _passwordError,
           isPassword: !_showPassword,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) {
+            _handleLogin();
+          },
           suffixIcon: IconButton(
             icon: Icon(
                 _showPassword ? Icons.visibility : Icons.visibility_off),
@@ -455,6 +453,7 @@ class _LoginScreenState extends State<LoginScreen> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              elevation: 2,
             ),
             child: _isLoading
                 ? const CircularProgressIndicator(color: Colors.white)
