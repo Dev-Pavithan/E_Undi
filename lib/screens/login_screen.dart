@@ -45,7 +45,12 @@ class _LoginScreenState extends State<LoginScreen> {
       final isAuthenticated = await StorageService.getCookie('isAuthenticated');
       if (isAuthenticated == 'true') {
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/donation');
+          // Use pushReplacementNamed with a small delay to ensure navigation
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              Navigator.pushReplacementNamed(context, '/donation');
+            }
+          });
         }
       }
     } catch (e) {
@@ -58,12 +63,10 @@ class _LoginScreenState extends State<LoginScreen> {
       final savedEmail = StorageService.getLocalValue('device_email');
       final savedId = StorageService.getLocalValue('device_id');
       
-      // Set the full email if saved
       if (savedEmail != null && savedEmail.isNotEmpty) {
         _emailController.text = savedEmail;
       } else {
-        // If no saved email, you can set a default or leave empty
-        // For testing, you can set a default email
+        // Set default for testing
         _emailController.text = 'DEV_99@gmail.com';
       }
       
@@ -72,11 +75,15 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         _idController.text = 'DEV_99';
       }
+      
+      // Set default password for testing (optional)
+      _passwordController.text = '123456789';
     } catch (e) {
       debugPrint('Error loading saved info: $e');
       // Set default values for testing
       _emailController.text = 'DEV_99@gmail.com';
       _idController.text = 'DEV_99';
+      _passwordController.text = '123456789';
     }
   }
 
@@ -97,9 +104,15 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       
       _idError = _idController.text.isEmpty ? 'Device ID is required' : null;
-      _passwordError = _passwordController.text.length < 6
-          ? 'Password must be at least 6 characters'
-          : null;
+      
+      // Check password length
+      if (_passwordController.text.isEmpty) {
+        _passwordError = 'Password is required';
+      } else if (_passwordController.text.length < 6) {
+        _passwordError = 'Password must be at least 6 characters';
+      } else {
+        _passwordError = null;
+      }
     });
     return _emailError == null && _idError == null && _passwordError == null;
   }
@@ -111,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final email = _emailController.text.trim();
       final deviceId = _idController.text.trim();
-      final passcode = _passwordController.text;
+      final passcode = _passwordController.text.trim();
       
       debugPrint('Attempting login with email: $email, deviceId: $deviceId');
       
@@ -123,6 +136,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
       debugPrint('Login response: $response');
       
+      // Check if login was successful
+      if (response['message'] != 'Login successful') {
+        throw Exception('Login failed: ${response['message'] ?? 'Unknown error'}');
+      }
+      
       // Safely extract device data
       final deviceData = response['device'];
       if (deviceData == null) {
@@ -133,11 +151,15 @@ class _LoginScreenState extends State<LoginScreen> {
       final deviceEmail = deviceData['device_email'] as String?;
       final deviceIdResponse = deviceData['device_id'] as String?;
       final comCode = deviceData['com_code'] as String?;
+      final deviceStatus = deviceData['device_status'] as String?;
       final invoiceAvailable = deviceData['invoice_availability'] as bool? ?? false;
 
       if (deviceEmail == null || deviceIdResponse == null || comCode == null) {
         throw Exception('Missing required device information');
       }
+
+      debugPrint('Login successful for device: $deviceEmail');
+      debugPrint('Device status: $deviceStatus, Invoice availability: $invoiceAvailable');
 
       // Store all authentication data
       await StorageService.setCookie('device_email', deviceEmail);
@@ -145,37 +167,61 @@ class _LoginScreenState extends State<LoginScreen> {
       await StorageService.setCookie('com_code', comCode);
       await StorageService.setCookie('isAuthenticated', 'true');
       await StorageService.setCookie('invoice_availability', invoiceAvailable.toString());
+      await StorageService.setCookie('device_status', deviceStatus ?? 'active');
+      
+      // Store in local storage as backup
       await StorageService.setLocalValue('device_email', deviceEmail);
       await StorageService.setLocalValue('device_id', deviceIdResponse);
       await StorageService.setLocalValue('com_code', comCode);
       await StorageService.setLocalValue('isAuthenticated', 'true');
+      await StorageService.setLocalValue('invoice_availability', invoiceAvailable.toString());
 
+      // Show success message
       if (mounted) {
-        // Check if PWA is already installed
-        bool installed = false;
-        try {
-          installed = isPWAInstalled();
-        } catch (e) {
-          debugPrint('Error checking PWA install: $e');
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Login successful! Redirecting...'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+
+      // Handle navigation after successful login
+      if (mounted) {
+        // Add a small delay to show the success message
+        await Future.delayed(const Duration(milliseconds: 500));
         
-        if (!installed && !_hasShownInstallDialog) {
-          _hasShownInstallDialog = true;
-          _showInstallPopup();
-        } else {
-          Navigator.pushReplacementNamed(context, '/donation');
+        if (mounted) {
+          // Check if PWA is already installed
+          bool installed = false;
+          try {
+            installed = isPWAInstalled();
+          } catch (e) {
+            debugPrint('Error checking PWA install: $e');
+          }
+          
+          if (!installed && !_hasShownInstallDialog) {
+            _hasShownInstallDialog = true;
+            _showInstallPopup();
+          } else {
+            // Direct navigation to donation screen
+            Navigator.pushReplacementNamed(context, '/donation');
+          }
         }
       }
     } catch (e) {
       debugPrint('Login error: $e');
       if (mounted) {
-        String errorMessage = e.toString().replaceAll('Exception:', '');
+        String errorMessage = e.toString().replaceAll('Exception:', '').trim();
         
         // Provide user-friendly error messages
         if (errorMessage.contains('device email') && errorMessage.contains('valid email')) {
           errorMessage = 'Please enter a valid email address (e.g., DEV_99@gmail.com)';
         } else if (errorMessage.contains('Validation failed')) {
           errorMessage = 'Please check your email and password and try again.';
+        } else if (errorMessage.isEmpty) {
+          errorMessage = 'Login failed. Please check your credentials and try again.';
         }
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -200,6 +246,11 @@ class _LoginScreenState extends State<LoginScreen> {
             backgroundColor: Colors.orange,
           ),
         );
+        // Still navigate even if install isn't ready
+        if (mounted) {
+          Navigator.pop(context);
+          Navigator.pushReplacementNamed(context, '/donation');
+        }
         return;
       }
       
@@ -349,12 +400,14 @@ class _LoginScreenState extends State<LoginScreen> {
           errorText: _emailError,
           keyboardType: TextInputType.emailAddress,
         ),
+        const SizedBox(height: 16),
         InputBox(
           label: 'Device ID',
           controller: _idController,
           hint: 'Enter device ID',
           errorText: _idError,
         ),
+        const SizedBox(height: 16),
         InputBox(
           label: 'Password',
           controller: _passwordController,
@@ -374,9 +427,18 @@ class _LoginScreenState extends State<LoginScreen> {
           height: 56,
           child: ElevatedButton(
             onPressed: _isLoading ? null : _handleLogin,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF12376E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
             child: _isLoading
                 ? const CircularProgressIndicator(color: Colors.white)
-                : const Text('Login'),
+                : const Text(
+                    'Login',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
           ),
         ),
       ],
