@@ -35,22 +35,120 @@
   </style>
 
   <script>
-    // Simple PWA detection (optional - just for information)
+    // PWA Installation Variables
+    let deferredPrompt = null;
+    let installPromptShown = false;
+    
+    const isLocalhost = location.hostname === 'localhost' || 
+                        location.hostname === '127.0.0.1' || 
+                        location.hostname === '';
+    const isHTTPS = location.protocol === 'https:';
+    
+    // Check if PWA is already installed
     window.isPWAInstalled = function() {
-      return window.matchMedia('(display-mode: standalone)').matches || 
-             window.navigator.standalone === true;
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                          window.navigator.standalone === true;
+      const isFullscreen = window.matchMedia('(display-mode: fullscreen)').matches;
+      const installed = isStandalone || isFullscreen;
+      console.log('PWA: isPWAInstalled:', installed);
+      return installed;
     };
     
-    // Register Service Worker for offline support (optional)
+    // Check if installation prompt is available
+    window.isPWAPromptAvailable = function() {
+      if (isLocalhost) {
+        console.log('PWA: isPWAPromptAvailable: true (localhost)');
+        return true;
+      }
+      const available = deferredPrompt !== null && !window.isPWAInstalled();
+      console.log('PWA: isPWAPromptAvailable:', available);
+      return available;
+    };
+    
+    // Install PWA function - returns appropriate status
+    window.installPWA = function() {
+      console.log('PWA: installPWA called');
+      
+      // Check if already installed
+      if (window.isPWAInstalled()) {
+        console.log('PWA: Already installed');
+        return 'already_installed';
+      }
+      
+      // For localhost - simulate installation
+      if (isLocalhost) {
+        console.log('PWA: Localhost simulation - installing');
+        setTimeout(() => {
+          console.log('PWA: Localhost simulation complete');
+        }, 500);
+        return 'installed';
+      }
+      
+      // For real HTTPS installation
+      if (deferredPrompt) {
+        try {
+          // Show the native install prompt
+          deferredPrompt.prompt();
+          
+          // Wait for user choice
+          deferredPrompt.userChoice.then((choiceResult) => {
+            console.log('PWA: User choice:', choiceResult.outcome);
+            deferredPrompt = null;
+            
+            if (choiceResult.outcome === 'accepted') {
+              console.log('PWA: User accepted installation');
+            } else {
+              console.log('PWA: User dismissed installation');
+            }
+          }).catch((err) => {
+            console.error('PWA: userChoice error:', err);
+          });
+          
+          return 'installing';
+        } catch (err) {
+          console.error('PWA: prompt() error:', err);
+          return 'error';
+        }
+      }
+      
+      // No prompt available
+      console.log('PWA: No installation prompt available');
+      return 'prompt_not_available';
+    };
+    
+    // Listen for beforeinstallprompt event
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      console.log('PWA: beforeinstallprompt captured ✅');
+    });
+    
+    // Listen for app installed event
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null;
+      installPromptShown = false;
+      console.log('PWA: App installed successfully ✅');
+      
+      // Optional: Notify Flutter app about installation
+      if (window.flutterAppInstalled) {
+        window.flutterAppInstalled();
+      }
+    });
+    
+    // Register Service Worker for offline support
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
-          console.log('Service Worker registered');
+          console.log('Service Worker registered successfully:', registration.scope);
         })
         .catch(error => {
           console.log('Service Worker registration failed:', error);
         });
     }
+    
+    // Log environment info
+    console.log('PWA: Environment - HTTPS:', isHTTPS, 'Localhost:', isLocalhost);
+    console.log('PWA: Ready for installation');
   </script>
 </head>
 <body>

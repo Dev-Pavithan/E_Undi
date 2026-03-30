@@ -24,6 +24,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _showInstallDialog = false;
   bool _installing = false;
+  bool _hasShownInstallDialog = false;
 
   @override
   void initState() {
@@ -88,16 +89,22 @@ class _LoginScreenState extends State<LoginScreen> {
       await StorageService.setLocalValue('isAuthenticated', 'true');
 
       if (mounted) {
-        // Check if PWA is already installed
-        final isInstalled = _isPWAInstalled();
-        
-        if (!isInstalled) {
-          // Show installation dialog
-          setState(() {
-            _showInstallDialog = true;
-          });
+        // Only show install dialog once
+        if (!_hasShownInstallDialog) {
+          // Check if PWA is already installed
+          final isInstalled = _isPWAInstalled();
+          
+          if (!isInstalled) {
+            // Show installation dialog
+            _hasShownInstallDialog = true;
+            setState(() {
+              _showInstallDialog = true;
+            });
+          } else {
+            // Already installed, go to donation
+            Navigator.pushReplacementNamed(context, '/donation');
+          }
         } else {
-          // Already installed, go to donation
           Navigator.pushReplacementNamed(context, '/donation');
         }
       }
@@ -121,6 +128,15 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  bool _isLocalhost() {
+    try {
+      final hostname = js.context['location']['hostname'] as String? ?? '';
+      return hostname == 'localhost' || hostname == '127.0.0.1';
+    } catch (e) {
+      return false;
+    }
+  }
+
   void _installPWA() async {
     setState(() => _installing = true);
     
@@ -129,38 +145,59 @@ class _LoginScreenState extends State<LoginScreen> {
       debugPrint('Install result: $result');
       
       if (result == 'installed' || result == 'already_installed') {
+        // Success - show success message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('App installed successfully!'),
               backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
             ),
           );
-          Navigator.pushReplacementNamed(context, '/donation');
         }
+        
+        // Navigate after a short delay
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/donation');
+          }
+        });
       } else if (result == 'installing') {
+        // Installation in progress
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Please follow browser prompts to install'),
+              content: Text('Please follow the browser prompts to install'),
               backgroundColor: Colors.blue,
+              duration: Duration(seconds: 3),
             ),
           );
-          Future.delayed(const Duration(seconds: 2), () {
+          
+          // Navigate after installation or timeout
+          Future.delayed(const Duration(seconds: 3), () {
             if (mounted) {
               Navigator.pushReplacementNamed(context, '/donation');
             }
           });
         }
       } else {
+        // Installation not available - just continue
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Installation not available. You can continue using the web version.'),
+            SnackBar(
+              content: Text(_isLocalhost() 
+                ? 'On localhost, installation is simulated. In production, you can install the app.'
+                : 'Installation not available. You can continue using the web version.'),
               backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
             ),
           );
-          Navigator.pushReplacementNamed(context, '/donation');
+          
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            if (mounted) {
+              Navigator.pushReplacementNamed(context, '/donation');
+            }
+          });
         }
       }
     } catch (e) {
@@ -168,11 +205,16 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Installation failed: $e'),
+            content: Text('Installation failed: ${_isLocalhost() ? "Simulation only on localhost" : e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
-        Navigator.pushReplacementNamed(context, '/donation');
+        
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/donation');
+          }
+        });
       }
     } finally {
       if (mounted) setState(() => _installing = false);
@@ -217,6 +259,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildInstallDialog() {
+    final isLocalhost = _isLocalhost();
+    
     return Container(
       color: Colors.black54,
       child: Center(
@@ -265,10 +309,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 12),
                 // Description
-                const Text(
-                  'Get a better experience with the installed app',
+                Text(
+                  isLocalhost 
+                    ? 'Installation is simulated on localhost.\nIn production, you can install the app for a better experience.'
+                    : 'Get a better experience with the installed app',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 14,
                     color: Colors.black54,
                   ),
@@ -323,7 +369,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           )
                         : const Icon(Icons.download, size: 20),
                     label: Text(
-                      _installing ? 'Installing...' : 'Install Now',
+                      _installing ? 'Installing...' : (isLocalhost ? 'Continue to App' : 'Install Now'),
                       style: const TextStyle(fontSize: 16),
                     ),
                     style: ElevatedButton.styleFrom(
