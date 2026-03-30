@@ -32,7 +32,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _loadSavedInfo();
     _checkIfAlreadyAuthenticated();
     
-    // Show install dialog if prompted from splash
     if (widget.showInstallPrompt && !_hasShownInstallDialog) {
       _hasShownInstallDialog = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -58,19 +57,46 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final savedEmail = StorageService.getLocalValue('device_email');
       final savedId = StorageService.getLocalValue('device_id');
-      if (savedEmail != null) _emailController.text = savedEmail;
-      if (savedId != null) _idController.text = savedId;
+      
+      // Set the full email if saved
+      if (savedEmail != null && savedEmail.isNotEmpty) {
+        _emailController.text = savedEmail;
+      } else {
+        // If no saved email, you can set a default or leave empty
+        // For testing, you can set a default email
+        _emailController.text = 'DEV_99@gmail.com';
+      }
+      
+      if (savedId != null && savedId.isNotEmpty) {
+        _idController.text = savedId;
+      } else {
+        _idController.text = 'DEV_99';
+      }
     } catch (e) {
       debugPrint('Error loading saved info: $e');
+      // Set default values for testing
+      _emailController.text = 'DEV_99@gmail.com';
+      _idController.text = 'DEV_99';
     }
   }
 
   bool _validate() {
     setState(() {
-      _emailError =
-          _emailController.text.isEmpty ? 'Device email is required' : null;
-      _idError =
-          _idController.text.isEmpty ? 'Device ID is required' : null;
+      final email = _emailController.text.trim();
+      
+      // Check if email is empty
+      if (email.isEmpty) {
+        _emailError = 'Device email is required';
+      } 
+      // Check if it's a valid email format
+      else if (!email.contains('@') || !email.contains('.')) {
+        _emailError = 'Please enter a valid email address (e.g., DEV_99@gmail.com)';
+      } 
+      else {
+        _emailError = null;
+      }
+      
+      _idError = _idController.text.isEmpty ? 'Device ID is required' : null;
       _passwordError = _passwordController.text.length < 6
           ? 'Password must be at least 6 characters'
           : null;
@@ -83,10 +109,16 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final email = _emailController.text.trim();
+      final deviceId = _idController.text.trim();
+      final passcode = _passwordController.text;
+      
+      debugPrint('Attempting login with email: $email, deviceId: $deviceId');
+      
       final response = await ApiService.loginDevice(
-        email: _emailController.text.trim(),
-        deviceId: _idController.text.trim(),
-        passcode: _passwordController.text,
+        email: email,
+        deviceId: deviceId,
+        passcode: passcode,
       );
 
       debugPrint('Login response: $response');
@@ -99,22 +131,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Extract with null safety
       final deviceEmail = deviceData['device_email'] as String?;
-      final deviceId = deviceData['device_id'] as String?;
+      final deviceIdResponse = deviceData['device_id'] as String?;
       final comCode = deviceData['com_code'] as String?;
       final invoiceAvailable = deviceData['invoice_availability'] as bool? ?? false;
 
-      if (deviceEmail == null || deviceId == null || comCode == null) {
+      if (deviceEmail == null || deviceIdResponse == null || comCode == null) {
         throw Exception('Missing required device information');
       }
 
       // Store all authentication data
       await StorageService.setCookie('device_email', deviceEmail);
-      await StorageService.setCookie('device_id', deviceId);
+      await StorageService.setCookie('device_id', deviceIdResponse);
       await StorageService.setCookie('com_code', comCode);
       await StorageService.setCookie('isAuthenticated', 'true');
       await StorageService.setCookie('invoice_availability', invoiceAvailable.toString());
       await StorageService.setLocalValue('device_email', deviceEmail);
-      await StorageService.setLocalValue('device_id', deviceId);
+      await StorageService.setLocalValue('device_id', deviceIdResponse);
       await StorageService.setLocalValue('com_code', comCode);
       await StorageService.setLocalValue('isAuthenticated', 'true');
 
@@ -137,10 +169,20 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       debugPrint('Login error: $e');
       if (mounted) {
+        String errorMessage = e.toString().replaceAll('Exception:', '');
+        
+        // Provide user-friendly error messages
+        if (errorMessage.contains('device email') && errorMessage.contains('valid email')) {
+          errorMessage = 'Please enter a valid email address (e.g., DEV_99@gmail.com)';
+        } else if (errorMessage.contains('Validation failed')) {
+          errorMessage = 'Please check your email and password and try again.';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString().replaceAll('Exception:', '')),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -164,7 +206,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final result = await installPWA();
       if (result == true && mounted) {
         if (mounted) {
-          Navigator.pop(context); // Close popup
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('App installed successfully! 🎉'),
@@ -303,7 +345,7 @@ class _LoginScreenState extends State<LoginScreen> {
         InputBox(
           label: 'Device Email',
           controller: _emailController,
-          hint: 'Enter device email',
+          hint: 'Enter device email (e.g., DEV_99@gmail.com)',
           errorText: _emailError,
           keyboardType: TextInputType.emailAddress,
         ),
