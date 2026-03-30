@@ -42,19 +42,27 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _checkIfAlreadyAuthenticated() async {
-    final isAuthenticated = await StorageService.getCookie('isAuthenticated');
-    if (isAuthenticated == 'true') {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/donation');
+    try {
+      final isAuthenticated = await StorageService.getCookie('isAuthenticated');
+      if (isAuthenticated == 'true') {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/donation');
+        }
       }
+    } catch (e) {
+      debugPrint('Error checking auth: $e');
     }
   }
 
   Future<void> _loadSavedInfo() async {
-    final savedEmail = StorageService.getLocalValue('device_email');
-    final savedId = StorageService.getLocalValue('device_id');
-    if (savedEmail != null) _emailController.text = savedEmail;
-    if (savedId != null) _idController.text = savedId;
+    try {
+      final savedEmail = StorageService.getLocalValue('device_email');
+      final savedId = StorageService.getLocalValue('device_id');
+      if (savedEmail != null) _emailController.text = savedEmail;
+      if (savedId != null) _idController.text = savedId;
+    } catch (e) {
+      debugPrint('Error loading saved info: $e');
+    }
   }
 
   bool _validate() {
@@ -81,26 +89,45 @@ class _LoginScreenState extends State<LoginScreen> {
         passcode: _passwordController.text,
       );
 
-      final device = response['device'] ?? response;
+      debugPrint('Login response: $response');
+      
+      // Safely extract device data
+      final deviceData = response['device'];
+      if (deviceData == null) {
+        throw Exception('Invalid response from server');
+      }
+
+      // Extract with null safety
+      final deviceEmail = deviceData['device_email'] as String?;
+      final deviceId = deviceData['device_id'] as String?;
+      final comCode = deviceData['com_code'] as String?;
+      final invoiceAvailable = deviceData['invoice_availability'] as bool? ?? false;
+
+      if (deviceEmail == null || deviceId == null || comCode == null) {
+        throw Exception('Missing required device information');
+      }
 
       // Store all authentication data
-      await StorageService.setCookie('device_email', device['device_email']);
-      await StorageService.setCookie('device_id', device['device_id']);
-      await StorageService.setCookie('com_code', device['com_code']);
+      await StorageService.setCookie('device_email', deviceEmail);
+      await StorageService.setCookie('device_id', deviceId);
+      await StorageService.setCookie('com_code', comCode);
       await StorageService.setCookie('isAuthenticated', 'true');
-      await StorageService.setCookie('invoice_availability',
-          (device['invoice_availability'] == true).toString());
-      await StorageService.setLocalValue(
-          'device_email', device['device_email']);
-      await StorageService.setLocalValue('device_id', device['device_id']);
-      await StorageService.setLocalValue('com_code', device['com_code']);
+      await StorageService.setCookie('invoice_availability', invoiceAvailable.toString());
+      await StorageService.setLocalValue('device_email', deviceEmail);
+      await StorageService.setLocalValue('device_id', deviceId);
+      await StorageService.setLocalValue('com_code', comCode);
       await StorageService.setLocalValue('isAuthenticated', 'true');
 
       if (mounted) {
         // Check if PWA is already installed
-        final isInstalled = isPWAInstalled();
+        bool installed = false;
+        try {
+          installed = isPWAInstalled();
+        } catch (e) {
+          debugPrint('Error checking PWA install: $e');
+        }
         
-        if (!isInstalled && !_hasShownInstallDialog) {
+        if (!installed && !_hasShownInstallDialog) {
           _hasShownInstallDialog = true;
           _showInstallPopup();
         } else {
@@ -108,10 +135,13 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
     } catch (e) {
+      debugPrint('Login error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(e.toString()), backgroundColor: Colors.red),
+            content: Text(e.toString().replaceAll('Exception:', '')),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -120,34 +150,49 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _triggerPWAInstall() async {
-    if (!isPWAPromptReady()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Installation prompt not ready. Please wait a moment or check your browser settings.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-    
-    final result = await installPWA();
-    if (result == true && mounted) {
-      Navigator.pop(context); // Close popup
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('App installed successfully! 🎉'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.pushReplacementNamed(context, '/donation');
-    } else if (result == false && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Installation cancelled or not available'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      Navigator.pushReplacementNamed(context, '/donation');
+    try {
+      if (!isPWAPromptReady()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Installation prompt not ready. Please wait a moment.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+      
+      final result = await installPWA();
+      if (result == true && mounted) {
+        if (mounted) {
+          Navigator.pop(context); // Close popup
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('App installed successfully! 🎉'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pushReplacementNamed(context, '/donation');
+        }
+      } else if (result == false && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Installation cancelled or not available'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        Navigator.pushReplacementNamed(context, '/donation');
+      }
+    } catch (e) {
+      debugPrint('Install error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Installation not available. You can continue using the web version.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        Navigator.pushReplacementNamed(context, '/donation');
+      }
     }
   }
 
@@ -294,6 +339,14 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _idController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 }
 

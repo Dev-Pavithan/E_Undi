@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class ApiService {
@@ -17,26 +18,38 @@ class ApiService {
   }) async {
     final uri = Uri.parse('$baseUrl/login-device');
     
-    print('API: Attempting login to $uri');
+    if (kDebugMode) {
+      print('API: Attempting login to $uri');
+    }
     
-    final response = await http.post(
-      uri,
-      headers: _headers,
-      body: jsonEncode({
-        'device_email': email,
-        'device_id': deviceId,
-        'device_passcode': passcode,
-      }),
-    );
+    try {
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'device_email': email,
+          'device_id': deviceId,
+          'device_passcode': passcode,
+        }),
+      ).timeout(const Duration(seconds: 15));
 
-    print('API: Login response status: ${response.statusCode}');
-    print('API: Login response body: ${response.body}');
+      if (kDebugMode) {
+        print('API: Login response status: ${response.statusCode}');
+        print('API: Login response body: ${response.body}');
+      }
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      final body = jsonDecode(response.body);
-      throw Exception(body['message'] ?? 'Login failed (${response.statusCode})');
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        return data;
+      } else {
+        final Map<String, dynamic> errorData = jsonDecode(response.body);
+        throw Exception(errorData['message'] ?? 'Login failed (${response.statusCode})');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('API Error: $e');
+      }
+      throw Exception('Unable to connect to server. Please check your internet connection.');
     }
   }
 
@@ -54,7 +67,9 @@ class ApiService {
       }
       return null;
     } catch (e) {
-      print('Error checking device status: $e');
+      if (kDebugMode) {
+        print('Error checking device status: $e');
+      }
       return null;
     }
   }
@@ -71,7 +86,9 @@ class ApiService {
       }
       return null;
     } catch (e) {
-      print('Error fetching company info: $e');
+      if (kDebugMode) {
+        print('Error fetching company info: $e');
+      }
       return null;
     }
   }
@@ -81,21 +98,28 @@ class ApiService {
     required String deviceId,
     required String transAmount,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/createTransaction'),
-      headers: _headers,
-      body: jsonEncode({
-        'com_code': comCode,
-        'device_id': deviceId,
-        'trans_amount': double.tryParse(transAmount) ?? 0.0,
-      }),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/createTransaction'),
+        headers: _headers,
+        body: jsonEncode({
+          'com_code': comCode,
+          'device_id': deviceId,
+          'trans_amount': double.tryParse(transAmount) ?? 0.0,
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception(
-          jsonDecode(response.body)['message'] ?? 'Transaction failed');
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return jsonDecode(response.body);
+      } else {
+        final Map<String, dynamic> errorData = jsonDecode(response.body);
+        throw Exception(errorData['message'] ?? 'Transaction failed');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error creating transaction: $e');
+      }
+      throw Exception('Failed to process transaction. Please try again.');
     }
   }
 
@@ -109,26 +133,51 @@ class ApiService {
     required String transAmount,
     String transEmailStatus = "send",
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/add-donor-transaction'),
-      headers: _headers,
-      body: jsonEncode({
-        'com_code': comCode,
-        'device_id': deviceId,
-        'donor_fname': firstName,
-        'donor_lname': lastName,
-        'donor_email': email,
-        'donor_phone': phone,
-        'trans_amount': double.tryParse(transAmount) ?? 0.0,
-        'trans_email_status': transEmailStatus,
-      }),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/add-donor-transaction'),
+        headers: _headers,
+        body: jsonEncode({
+          'com_code': comCode,
+          'device_id': deviceId,
+          'donor_fname': firstName.trim(),
+          'donor_lname': lastName.trim(),
+          'donor_email': email.trim(),
+          'donor_phone': phone.trim(),
+          'trans_amount': double.tryParse(transAmount) ?? 0.0,
+          'trans_email_status': transEmailStatus,
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception(
-          jsonDecode(response.body)['message'] ?? 'Donor transaction failed');
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return jsonDecode(response.body);
+      } else {
+        final Map<String, dynamic> errorData = jsonDecode(response.body);
+        throw Exception(errorData['message'] ?? 'Donor transaction failed');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error adding donor transaction: $e');
+      }
+      throw Exception('Failed to process donation. Please try again.');
     }
+  }
+
+  // Helper method to validate email format
+  static bool isValidEmail(String email) {
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    return emailRegex.hasMatch(email);
+  }
+
+  // Helper method to validate phone number
+  static bool isValidPhone(String phone) {
+    final phoneRegex = RegExp(r'^[\d\s\-\(\)]+$');
+    return phoneRegex.hasMatch(phone) && phone.length >= 8;
+  }
+
+  // Helper method to validate amount
+  static bool isValidAmount(String amount) {
+    final amountValue = double.tryParse(amount);
+    return amountValue != null && amountValue > 0;
   }
 }
